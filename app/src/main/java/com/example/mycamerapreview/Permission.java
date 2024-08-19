@@ -11,7 +11,8 @@ public class Permission {
     public static final int REQUEST_CODE = 5;
     //定义三个权限
     private static final String[] permission = new String[]{
-            Manifest.permission.CAMERA
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
     };
     //每个权限是否已授
     public static boolean isPermissionGranted(Activity activity){

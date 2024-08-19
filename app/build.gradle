@@ -54,6 +54,7 @@ dependencies {
     implementation libs.material
     implementation libs.androidx.constraintlayout
     implementation libs.androidx.activity
+    implementation libs.androidx.camera.video
 //    implementation libs.firebase.firestore.ktx
 //    testImplementation libs.junit
 //    androidTestImplementation libs.androidx.junit

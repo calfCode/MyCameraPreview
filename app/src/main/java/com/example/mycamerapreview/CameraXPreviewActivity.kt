@@ -1,8 +1,10 @@
 package com.example.mycamerapreview
 
+import android.content.ContentValues
 import android.icu.text.SimpleDateFormat
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 
 import android.widget.Toast
@@ -15,12 +17,25 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
+import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.core.content.ContextCompat
+import androidx.core.util.Consumer
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.whenCreated
 import com.example.mycamerapreview.databinding.ActivityCameraPreviewBinding
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.Locale
@@ -30,6 +45,7 @@ import java.util.concurrent.ExecutorService
 typealias LumaListener = (luma: Double) -> Unit
 class CameraXPreviewActivity : AppCompatActivity(){
     companion object{
+        const val DEFAULT_QUALITY_IDX = 0
         val TAG = "CameraPreviewActivity"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
     }
@@ -39,6 +55,14 @@ class CameraXPreviewActivity : AppCompatActivity(){
 
     private lateinit var outputDirectory: File
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var videoCapture: VideoCapture<Recorder>
+    private var cameraIndex = 0
+    private var qualityIndex = DEFAULT_QUALITY_IDX
+    private var audioEnabled = true
+    private var currentRecording: Recording? = null
+
+    private val mainThreadExecutor by lazy { ContextCompat.getMainExecutor(application) }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +91,14 @@ class CameraXPreviewActivity : AppCompatActivity(){
             takePhoto()
         }
 
+        binding.recorderVideo.setOnClickListener {
+            if(currentRecording==null) {
+                startRecording()
+            }else{
+                stopRecording();
+            }
+        }
+
     }
     private fun getOutputDirectory(): File {
         val mediaDir = externalMediaDirs.firstOrNull()?.let {
@@ -83,6 +115,42 @@ class CameraXPreviewActivity : AppCompatActivity(){
         super.onStart()
         Permission.checkPermission(this)
         startCamera()
+    }
+    private fun stopRecording(){
+        val recording = currentRecording
+        if (recording != null) {
+            recording.stop()
+            currentRecording = null
+        }
+    }
+
+    private fun startRecording() {
+        // create MediaStoreOutputOptions for our recorder: resulting our recording!
+        val name = "CameraX-recording-" +
+                java.text.SimpleDateFormat(FILENAME_FORMAT, Locale.US)
+                    .format(System.currentTimeMillis()) + ".mp4"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+        }
+        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
+            application.contentResolver,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(contentValues)
+            .build()
+
+        // configure Recorder and Start recording to the mediaStoreOutput.
+        currentRecording = videoCapture.output
+            .prepareRecording(application, mediaStoreOutput)
+            .apply { if (audioEnabled) withAudioEnabled() }
+            .start(mainThreadExecutor, captureListener)
+
+        Log.i(TAG, "Recording started")
+    }
+
+    private val captureListener = Consumer<VideoRecordEvent> { event ->
+
+
+
     }
 
 
@@ -118,6 +186,20 @@ class CameraXPreviewActivity : AppCompatActivity(){
                 imageCapture = ImageCapture.Builder()
                     .build()
 
+
+                //   创建 CameraSelector 对象并选择 DEFAULT_FRONT_CAMERA。
+                // Select back camera as a default
+                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
+                // create the user required QualitySelector (video resolution): we know this is
+                // supported, a valid qualitySelector will be created.
+                val quality = Quality.SD
+                val qualitySelector = QualitySelector.from(quality)
+
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(qualitySelector)
+                    .build()
+                videoCapture = VideoCapture.withOutput(recorder)
                 val imageAnalyzer = ImageAnalysis.Builder()
                     .build()
                     .also {
@@ -127,9 +209,7 @@ class CameraXPreviewActivity : AppCompatActivity(){
                     }
 
 
-             //   创建 CameraSelector 对象并选择 DEFAULT_FRONT_CAMERA。
-            // Select back camera as a default
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
 
             try {
                 /*
@@ -140,7 +220,7 @@ class CameraXPreviewActivity : AppCompatActivity(){
 
                 // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture,imageAnalyzer)
+                    this, cameraSelector, preview,videoCapture, imageCapture,imageAnalyzer)
 
             } catch(exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
@@ -215,4 +295,5 @@ class CameraXPreviewActivity : AppCompatActivity(){
             image.close()
         }
     }
+
 }
